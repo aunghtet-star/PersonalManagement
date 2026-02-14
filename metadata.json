@@ -1,0 +1,5 @@
+{
+  "name": "FinanceFlow MVP",
+  "description": "A comprehensive personal money management system with account tracking, income/expense logging, and an integrated AI financial assistant powered by Gemini.",
+  "requestFramePermissions": []
+}
