@@ -19,7 +19,7 @@ const MICROSOFT_CLIENT_ID = import.meta.env.VITE_MICROSOFT_CLIENT_ID || "";
 const MICROSOFT_TENANT_ID = import.meta.env.VITE_MICROSOFT_TENANT_ID || "common";
 
 const GOOGLE_DISCOVERY_DOCS = ['https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest'];
-const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/calendar.readonly';
+const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/calendar.events';
 const MICROSOFT_SCOPES = ['Calendars.Read', 'User.Read'];
 
 export default function App() {
@@ -89,6 +89,13 @@ export default function App() {
           discoveryDocs: GOOGLE_DISCOVERY_DOCS,
         });
         setGapiInited(true);
+
+        // Check if there's an existing token and auto-reconnect
+        const existingToken = window.gapi.client.getToken();
+        if (existingToken) {
+          setIsGoogleConnected(true);
+          await fetchGoogleData();
+        }
       } catch (error) {
         console.error("Error initializing GAPI client:", error);
       }
@@ -99,7 +106,18 @@ export default function App() {
         client_id: GOOGLE_CLIENT_ID,
         scope: GOOGLE_SCOPES,
         callback: async (resp: any) => {
-          if (resp.error) return;
+          if (resp.error) {
+            console.error('Google auth error:', resp.error);
+            return;
+          }
+
+          // Set the token in gapi client for persistence
+          if (resp.access_token) {
+            window.gapi.client.setToken({
+              access_token: resp.access_token
+            });
+          }
+
           setIsGoogleConnected(true);
           await fetchGoogleData();
         },
@@ -151,11 +169,30 @@ export default function App() {
       alert("Google Calendar is not configured. Please add VITE_GOOGLE_CLIENT_ID and VITE_GOOGLE_API_KEY to your .env file.");
       return;
     }
-    if (window.gapi.client.getToken() === null) {
+
+    // Check if already has a valid token
+    const existingToken = window.gapi.client.getToken();
+    if (existingToken === null) {
+      // Request new token with consent
       tokenClient.requestAccessToken({ prompt: 'consent' });
     } else {
+      // Refresh existing token
       tokenClient.requestAccessToken({ prompt: '' });
     }
+  };
+
+  const handleDisconnectGoogle = () => {
+    const token = window.gapi.client.getToken();
+    if (token !== null) {
+      window.google.accounts.oauth2.revoke(token.access_token, () => {
+        console.log('Google token revoked');
+      });
+      window.gapi.client.setToken(null);
+    }
+    setIsGoogleConnected(false);
+    // Remove Google events from state
+    setEvents(prev => prev.filter(e => e.type !== 'google'));
+    setExternalCalendars(prev => prev.filter(c => c.provider !== 'google'));
   };
 
   const handleConnectMicrosoft = async () => {
@@ -188,6 +225,58 @@ export default function App() {
   // --- Data Fetching Logic ---
 
   // Google Data
+  const createGoogleCalendarEvent = async (event: CalendarEvent) => {
+    if (!gapiInited || !isGoogleConnected) {
+      throw new Error('Google Calendar not connected');
+    }
+
+    try {
+      // Get the primary calendar or first selected calendar
+      const selectedGoogleCal = externalCalendars.find(c => c.provider === 'google' && c.selected);
+      const calendarId = selectedGoogleCal?.id || 'primary';
+
+      const googleEvent = {
+        summary: event.title,
+        description: event.description || '',
+        location: event.location || '',
+        start: {
+          dateTime: event.start,
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        },
+        end: {
+          dateTime: event.end,
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        }
+      };
+
+      const response = await window.gapi.client.calendar.events.insert({
+        calendarId: calendarId,
+        resource: googleEvent
+      });
+
+      // Return the created event with Google metadata
+      const createdEvent: CalendarEvent = {
+        id: response.result.id || event.id,
+        title: event.title,
+        start: event.start,
+        end: event.end,
+        type: 'google',
+        description: event.description || '',
+        location: event.location || '',
+        color: selectedGoogleCal?.backgroundColor || '#3b82f6',
+        calendarId: calendarId
+      };
+
+      // Add to local state
+      setEvents(prev => [...prev, createdEvent]);
+
+      return createdEvent;
+    } catch (error) {
+      console.error('Error creating Google Calendar event:', error);
+      throw error;
+    }
+  };
+
   const fetchGoogleData = async () => {
     if (!gapiInited) return;
     try {
@@ -479,6 +568,7 @@ export default function App() {
                 onAddEvent={handleAddEvent}
                 isGoogleConnected={isGoogleConnected}
                 onConnectGoogle={handleConnectGoogle}
+                onDisconnectGoogle={handleDisconnectGoogle}
                 isMicrosoftConnected={isMicrosoftConnected}
                 onConnectMicrosoft={handleConnectMicrosoft}
                 calendars={externalCalendars}
@@ -508,6 +598,8 @@ export default function App() {
                 transactions={transactions}
                 events={events}
                 onAddEvent={handleAddEvent}
+                isGoogleConnected={isGoogleConnected}
+                onCreateGoogleEvent={createGoogleCalendarEvent}
               />
             )}
           </div>

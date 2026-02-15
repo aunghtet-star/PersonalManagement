@@ -8,9 +8,11 @@ interface ChatProps {
   transactions: Transaction[];
   events: CalendarEvent[];
   onAddEvent: (event: CalendarEvent) => void;
+  isGoogleConnected?: boolean;
+  onCreateGoogleEvent?: (event: CalendarEvent) => Promise<CalendarEvent>;
 }
 
-export default function Chat({ accounts, transactions, events, onAddEvent }: ChatProps) {
+export default function Chat({ accounts, transactions, events, onAddEvent, isGoogleConnected, onCreateGoogleEvent }: ChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'welcome',
@@ -119,8 +121,31 @@ export default function Chat({ accounts, transactions, events, onAddEvent }: Cha
               color: '#3b82f6'
             };
 
-            onAddEvent(newEvent);
-            apiResponse = { result: "Event created successfully.", event: newEvent };
+            // Try to create in Google Calendar if connected
+            if (isGoogleConnected && onCreateGoogleEvent) {
+              try {
+                const googleEvent = await onCreateGoogleEvent(newEvent);
+                apiResponse = {
+                  result: "Event created successfully in Google Calendar.",
+                  event: googleEvent
+                };
+              } catch (error) {
+                console.error('Failed to create Google Calendar event, falling back to local:', error);
+                // Fall back to local event
+                onAddEvent(newEvent);
+                apiResponse = {
+                  result: "Event created locally (Google Calendar sync failed).",
+                  event: newEvent
+                };
+              }
+            } else {
+              // Create local event
+              onAddEvent(newEvent);
+              apiResponse = {
+                result: "Event created successfully in your local calendar.",
+                event: newEvent
+              };
+            }
           }
           else if (call.name === 'getCalendarEvents') {
             const args = call.args;
