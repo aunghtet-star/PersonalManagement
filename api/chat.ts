@@ -2,31 +2,31 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { VertexAI } from '@google-cloud/vertexai';
 
 // Define function declarations for Vertex AI
-const functionDeclarations = [
+const functionDeclarations: any[] = [
     {
         name: "createCalendarEvent",
         description: "Create a new event in the user's calendar. Use this when the user asks to schedule a meeting, appointment, or reminder.",
         parameters: {
-            type: "object" as const,
+            type: "object",
             properties: {
                 title: {
-                    type: "string" as const,
+                    type: "string",
                     description: "The title of the event (e.g., 'Meeting with Alice', 'Dentist Appointment')."
                 },
                 start: {
-                    type: "string" as const,
+                    type: "string",
                     description: "The start time of the event in ISO 8601 format (e.g., '2023-10-27T14:00:00'). Calculate this based on the user's relative time request (e.g., 'tomorrow at 2pm') and the current reference time."
                 },
                 end: {
-                    type: "string" as const,
+                    type: "string",
                     description: "The end time of the event in ISO 8601 format. If duration is not specified, assume 1 hour."
                 },
                 description: {
-                    type: "string" as const,
+                    type: "string",
                     description: "Optional description or agenda for the event."
                 },
                 location: {
-                    type: "string" as const,
+                    type: "string",
                     description: "Optional location for the event."
                 }
             },
@@ -37,10 +37,10 @@ const functionDeclarations = [
         name: "getCalendarEvents",
         description: "Get a list of calendar events for a specific time range to check availability or see what's on the schedule.",
         parameters: {
-            type: "object" as const,
+            type: "object",
             properties: {
-                start: { type: "string" as const, description: "Start time of the range to check (ISO 8601)." },
-                end: { type: "string" as const, description: "End time of the range to check (ISO 8601)." }
+                start: { type: "string", description: "Start time of the range to check (ISO 8601)." },
+                end: { type: "string", description: "End time of the range to check (ISO 8601)." }
             },
             required: ["start", "end"]
         }
