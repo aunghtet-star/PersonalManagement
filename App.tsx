@@ -11,6 +11,10 @@ import Personal from './components/Personal';
 import Schedule from './components/Schedule';
 import Notes from './components/Notes';
 import { Menu } from 'lucide-react';
+import { useAccounts } from './hooks/useAccounts';
+import { useTransactions } from './hooks/useTransactions';
+import { usePersonalLogs } from './hooks/usePersonalLogs';
+import { useCalendarEvents } from './hooks/useCalendarEvents';
 
 // --- Configuration ---
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
@@ -23,15 +27,20 @@ const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/calendar.events';
 const MICROSOFT_SCOPES = ['Calendars.Read', 'User.Read'];
 
 export default function App() {
-  const [accounts, setAccounts] = useState<Account[]>(INITIAL_ACCOUNTS);
-  const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
-  const [personalLogs, setPersonalLogs] = useState<DailyLog[]>([]);
+  // Use Supabase hooks for data persistence
+  const { accounts, addAccount: addAccountToDB, updateAccountBalance } = useAccounts();
+  const { transactions, addTransaction: addTransactionToDB } = useTransactions();
+  const { logs: personalLogs, updateLog } = usePersonalLogs();
+  const { events: localEvents, addEvent: addEventToDB } = useCalendarEvents();
 
-  // Calendar State
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  // Calendar State (merge local + external events)
+  const [externalEvents, setExternalEvents] = useState<CalendarEvent[]>([]);
   const [externalCalendars, setExternalCalendars] = useState<ExternalCalendar[]>([
     { id: 'local-1', summary: 'My Personal Calendar', provider: 'local', selected: true, backgroundColor: '#3b82f6' }
   ]);
+
+  // Merge local (from Supabase) and external (Google/Microsoft) events
+  const events = [...localEvents, ...externalEvents];
 
   const [isGoogleConnected, setIsGoogleConnected] = useState(false);
   const [isMicrosoftConnected, setIsMicrosoftConnected] = useState(false);
@@ -191,7 +200,7 @@ export default function App() {
     }
     setIsGoogleConnected(false);
     // Remove Google events from state
-    setEvents(prev => prev.filter(e => e.type !== 'google'));
+    setExternalEvents(prev => prev.filter((e: CalendarEvent) => e.type !== 'google'));
     setExternalCalendars(prev => prev.filter(c => c.provider !== 'google'));
   };
 
@@ -267,8 +276,8 @@ export default function App() {
         calendarId: calendarId
       };
 
-      // Add to local state
-      setEvents(prev => [...prev, createdEvent]);
+      // Add to external events state (Google events)
+      setExternalEvents(prev => [...prev, createdEvent]);
 
       return createdEvent;
     } catch (error) {
@@ -333,8 +342,8 @@ export default function App() {
       const results = await Promise.all(promises);
       const newEvents = results.flat();
 
-      setEvents(prev => {
-        const nonGoogle = prev.filter(e => e.type !== 'google');
+      setExternalEvents(prev => {
+        const nonGoogle = prev.filter((e: CalendarEvent) => e.type !== 'google');
         return [...nonGoogle, ...newEvents];
       });
     } catch (err) { console.error(err); }
@@ -434,8 +443,8 @@ export default function App() {
     const results = await Promise.all(promises);
     const newEvents = results.flat();
 
-    setEvents(prev => {
-      const nonMs = prev.filter(e => e.type !== 'microsoft');
+    setExternalEvents(prev => {
+      const nonMs = prev.filter((e: CalendarEvent) => e.type !== 'microsoft');
       return [...nonMs, ...newEvents];
     });
   };
@@ -460,13 +469,13 @@ export default function App() {
 
     if (targetCal.provider === 'google') {
       if (activeForProvider.length === 0) {
-        setEvents(prev => prev.filter(e => e.type !== 'google'));
+        setExternalEvents(prev => prev.filter((e: CalendarEvent) => e.type !== 'google'));
       } else {
         fetchGoogleEvents(activeForProvider);
       }
     } else if (targetCal.provider === 'microsoft') {
       if (activeForProvider.length === 0) {
-        setEvents(prev => prev.filter(e => e.type !== 'microsoft'));
+        setExternalEvents(prev => prev.filter((e: CalendarEvent) => e.type !== 'microsoft'));
       } else {
         fetchMicrosoftEvents(activeForProvider);
       }
@@ -481,38 +490,34 @@ export default function App() {
   };
 
   const handleAddTransaction = (newTransaction: Transaction) => {
-    setTransactions(prev => [newTransaction, ...prev]);
-    setAccounts(prevAccounts =>
-      prevAccounts.map(acc => {
-        if (acc.id === newTransaction.accountId) {
-          const newBalance = newTransaction.type === 'Income'
-            ? acc.balance + newTransaction.amount
-            : acc.balance - newTransaction.amount;
-          return { ...acc, balance: newBalance };
-        }
-        return acc;
-      })
-    );
+    addTransactionToDB(newTransaction);
+
+    // Update account balance
+    const account = accounts.find((acc: Account) => acc.id === newTransaction.accountId);
+    if (account) {
+      const newBalance = newTransaction.type === 'Income'
+        ? account.balance + newTransaction.amount
+        : account.balance - newTransaction.amount;
+      updateAccountBalance(account.id, newBalance);
+    }
   };
 
   const handleAddAccount = (newAccount: Account) => {
-    setAccounts(prev => [...prev, newAccount]);
+    addAccountToDB(newAccount);
   };
 
   const handleUpdateLog = (updatedLog: DailyLog) => {
-    setPersonalLogs(prev => {
-      const index = prev.findIndex(log => log.date === updatedLog.date);
-      if (index >= 0) {
-        const newLogs = [...prev];
-        newLogs[index] = updatedLog;
-        return newLogs;
-      }
-      return [...prev, updatedLog];
-    });
+    updateLog(updatedLog);
   };
 
   const handleAddEvent = (newEvent: CalendarEvent) => {
-    setEvents(prev => [...prev, newEvent]);
+    // Only add to Supabase if it's a local/team event
+    if (newEvent.type === 'local' || newEvent.type === 'team') {
+      addEventToDB(newEvent);
+    } else {
+      // For Google/Microsoft events, add to external events
+      setExternalEvents(prev => [...prev, newEvent]);
+    }
   };
 
   return (
