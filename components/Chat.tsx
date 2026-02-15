@@ -13,18 +13,44 @@ interface ChatProps {
 }
 
 export default function Chat({ accounts, transactions, events, onAddEvent, isGoogleConnected, onCreateGoogleEvent }: ChatProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: 'welcome',
-      role: 'model',
-      text: 'Hello! I am your AI assistant. I can help you manage your finances and your schedule. Try asking me to "Schedule a meeting with John tomorrow at 2 PM" or ask "Am I free on Friday?".',
-      timestamp: Date.now()
+  const WELCOME_MESSAGE: ChatMessage = {
+    id: 'welcome',
+    role: 'model',
+    text: 'Hello! I am your AI assistant. I can help you manage your finances and your schedule. Try asking me to "Schedule a meeting with John tomorrow at 2 PM" or ask "Am I free on Friday?".',
+    timestamp: Date.now()
+  };
+
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    try {
+      const saved = localStorage.getItem('chat_messages');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {
+      console.warn('Failed to load chat messages from localStorage:', e);
     }
-  ]);
+    return [WELCOME_MESSAGE];
+  });
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
-  const sessionIdRef = useRef<string>(`session-${Date.now()}`);
+  const sessionIdRef = useRef<string>(
+    localStorage.getItem('chat_session_id') || (() => {
+      const newId = `session-${Date.now()}`;
+      localStorage.setItem('chat_session_id', newId);
+      return newId;
+    })()
+  );
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Persist messages to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem('chat_messages', JSON.stringify(messages));
+    } catch (e) {
+      console.warn('Failed to save chat messages to localStorage:', e);
+    }
+  }, [messages]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
