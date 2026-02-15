@@ -146,13 +146,13 @@ export default function Chat({ accounts, transactions, events, onAddEvent }: Cha
           });
         }
 
-        // Send function responses back to backend
-        const followUpResponse = await fetch(`${apiUrl}/api/function-response`, {
+        // Send function responses back to the SAME endpoint
+        const followUpResponse = await fetch(`${apiUrl}/api/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             sessionId: sessionIdRef.current,
-            functionResponses: functionResponses
+            functionResults: functionResponses
           })
         });
 
@@ -212,17 +212,17 @@ export default function Chat({ accounts, transactions, events, onAddEvent }: Cha
             className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
           >
             <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${msg.role === 'user'
-                ? 'bg-blue-600 text-white'
-                : 'bg-emerald-600 text-white'
+              ? 'bg-blue-600 text-white'
+              : 'bg-emerald-600 text-white'
               }`}>
               {msg.role === 'user' ? <User size={16} /> : <Bot size={16} />}
             </div>
 
             <div className={`max-w-[80%] md:max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${msg.role === 'user'
-                ? 'bg-blue-600 text-white rounded-tr-sm'
-                : msg.isError
-                  ? 'bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-tl-sm'
-                  : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-tl-sm shadow-sm'
+              ? 'bg-blue-600 text-white rounded-tr-sm'
+              : msg.isError
+                ? 'bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-tl-sm'
+                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-tl-sm shadow-sm'
               }`}>
               {msg.text}
             </div>

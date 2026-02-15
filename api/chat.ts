@@ -47,8 +47,8 @@ const functionDeclarations: any[] = [
     }
 ];
 
-// Store chat sessions in memory (for demo - use database in production)
-export const chatSessions = new Map<string, any>();
+// Store chat sessions in memory (per-instance, for demo)
+const chatSessions = new Map<string, any>();
 
 export default async function handler(
     req: VercelRequest,
@@ -70,12 +70,7 @@ export default async function handler(
     }
 
     try {
-        const { message, sessionId, context, action } = req.body;
-
-        // Validate required fields
-        if (!message && action !== 'init') {
-            return res.status(400).json({ error: 'Message is required' });
-        }
+        const { message, sessionId, context, action, functionResults } = req.body;
 
         // Get credentials from environment
         const projectId = process.env.VERTEX_AI_PROJECT_ID;
@@ -140,7 +135,22 @@ export default async function handler(
             }
         }
 
-        // Send message to Vertex AI
+        // If function results are provided, send them first
+        if (functionResults && functionResults.length > 0) {
+            const followUpResult = await chatSession.sendMessage(functionResults);
+            const text = followUpResult.response.candidates?.[0]?.content?.parts?.[0]?.text || "Action completed.";
+
+            return res.status(200).json({
+                type: 'text',
+                text: text
+            });
+        }
+
+        // Send user message to Vertex AI
+        if (!message) {
+            return res.status(400).json({ error: 'Message is required' });
+        }
+
         const result = await chatSession.sendMessage(message);
         const response = result.response;
 
