@@ -546,12 +546,31 @@ export default function App() {
     updateLog(updatedLog);
   };
 
-  const handleAddEvent = (newEvent: CalendarEvent) => {
-    // Only add to Supabase if it's a local/team event
-    if (newEvent.type === 'local' || newEvent.type === 'team') {
+  const handleAddEvent = async (newEvent: CalendarEvent) => {
+    if (newEvent.type === 'google' && isGoogleConnected) {
+      // Event targets a Google calendar — create it on Google Calendar directly
+      try {
+        await createGoogleCalendarEvent(newEvent);
+        // createGoogleCalendarEvent already adds to externalEvents
+      } catch (error) {
+        console.error('Failed to sync event to Google Calendar:', error);
+        // Fallback: add to external events locally
+        setExternalEvents(prev => [...prev, newEvent]);
+      }
+    } else if (newEvent.type === 'local' || newEvent.type === 'team') {
+      // Save to Supabase
       addEventToDB(newEvent);
+
+      // Also sync to Google Calendar if connected (bidirectional)
+      if (isGoogleConnected) {
+        try {
+          await createGoogleCalendarEvent(newEvent);
+        } catch (error) {
+          console.warn('Event saved locally but failed to sync to Google Calendar:', error);
+        }
+      }
     } else {
-      // For Google/Microsoft events, add to external events
+      // For Microsoft or other external events
       setExternalEvents(prev => [...prev, newEvent]);
     }
   };
