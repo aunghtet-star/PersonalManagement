@@ -4,14 +4,13 @@
 -- This migration creates all necessary tables for the FinanceFlow app
 -- with proper relationships, constraints, and Row Level Security
 
--- Enable UUID extension
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- Note: Using gen_random_uuid() which is built-in to Postgres 13+
 
 -- =============================================
 -- 1. ACCOUNTS TABLE
 -- =============================================
 CREATE TABLE accounts (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     type TEXT NOT NULL CHECK (type IN ('Bank', 'Cash', 'Mobile Money', 'Credit Card')),
     balance NUMERIC(12, 2) NOT NULL DEFAULT 0,
@@ -25,7 +24,7 @@ CREATE TABLE accounts (
 -- 2. TRANSACTIONS TABLE
 -- =============================================
 CREATE TABLE transactions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     type TEXT NOT NULL CHECK (type IN ('Income', 'Expense')),
     amount NUMERIC(12, 2) NOT NULL CHECK (amount > 0),
@@ -44,7 +43,7 @@ CREATE INDEX idx_transactions_date ON transactions(date);
 -- 3. PERSONAL LOGS TABLE
 -- =============================================
 CREATE TABLE personal_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     date DATE NOT NULL UNIQUE, -- One log per day
     water_intake INTEGER NOT NULL DEFAULT 0, -- cups
     exercise_minutes INTEGER NOT NULL DEFAULT 0,
@@ -64,7 +63,7 @@ CREATE INDEX idx_personal_logs_date ON personal_logs(date);
 -- 4. CALENDAR EVENTS TABLE
 -- =============================================
 CREATE TABLE calendar_events (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title TEXT NOT NULL,
     start_time TEXT NOT NULL, -- ISO date string
     end_time TEXT NOT NULL, -- ISO date string

@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Account, Transaction, ChatMessage, CalendarEvent } from '../types';
-import { GoogleGenAI, GenerateContentResponse, Chat as GeminiChat, FunctionDeclaration, Type, Tool, Part } from "@google/genai";
 import { formatCurrency, generateId } from '../utils';
 import { Send, Bot, User, Sparkles } from 'lucide-react';
 
@@ -22,7 +21,7 @@ export default function Chat({ accounts, transactions, events, onAddEvent }: Cha
   ]);
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
-  const chatSessionRef = useRef<GeminiChat | null>(null);
+  const sessionIdRef = useRef<string>(`session-${Date.now()}`);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -33,96 +32,42 @@ export default function Chat({ accounts, transactions, events, onAddEvent }: Cha
     scrollToBottom();
   }, [messages, isThinking]);
 
-  // Define Function Declarations (Tools)
-  const createCalendarEvent: FunctionDeclaration = {
-    name: "createCalendarEvent",
-    description: "Create a new event in the user's calendar. Use this when the user asks to schedule a meeting, appointment, or reminder.",
-    parameters: {
-      type: Type.OBJECT,
-      properties: {
-        title: {
-          type: Type.STRING,
-          description: "The title of the event (e.g., 'Meeting with Alice', 'Dentist Appointment')."
-        },
-        start: {
-          type: Type.STRING,
-          description: "The start time of the event in ISO 8601 format (e.g., '2023-10-27T14:00:00'). Calculate this based on the user's relative time request (e.g., 'tomorrow at 2pm') and the current reference time."
-        },
-        end: {
-          type: Type.STRING,
-          description: "The end time of the event in ISO 8601 format. If duration is not specified, assume 1 hour."
-        },
-        description: {
-          type: Type.STRING,
-          description: "Optional description or agenda for the event."
-        },
-        location: {
-          type: Type.STRING,
-          description: "Optional location for the event."
-        }
-      },
-      required: ["title", "start", "end"]
-    }
-  };
-
-  const getCalendarEvents: FunctionDeclaration = {
-    name: "getCalendarEvents",
-    description: "Get a list of calendar events for a specific time range to check availability or see what's on the schedule.",
-    parameters: {
-        type: Type.OBJECT,
-        properties: {
-            start: { type: Type.STRING, description: "Start time of the range to check (ISO 8601)." },
-            end: { type: Type.STRING, description: "End time of the range to check (ISO 8601)." }
-        },
-        required: ["start", "end"]
-    }
-  };
-
-  const tools: Tool[] = [{ functionDeclarations: [createCalendarEvent, getCalendarEvents] }];
-
-  // Initialize Gemini Chat
+  // Initialize chat session on mount
   useEffect(() => {
     const initChat = async () => {
       try {
         const totalBalance = accounts.reduce((acc, curr) => acc + curr.balance, 0);
-        const currentDateTime = new Date().toLocaleString();
-        const currentIso = new Date().toISOString();
-        
-        const contextString = `
-          You are a helpful and intelligent assistant for a user in Myanmar.
-          
-          Current Date and Time: ${currentDateTime} (ISO: ${currentIso}).
-          
+        const financialContext = `
           Financial Context:
           - Total Balance: ${formatCurrency(totalBalance)}
           - Accounts: ${accounts.map(a => `${a.name} (${a.type}): ${formatCurrency(a.balance)}`).join(', ')}
-          
-          Instructions:
-          1. Helps with Finance: Budgeting, categorizing expenses, allocating MMK.
-          2. Helps with Calendar: You can create events and check availability using the provided tools. 
-          3. When creating events, ALWAYS convert relative terms like "tomorrow", "next Tuesday" into precise ISO 8601 datetime strings based on the 'Current Date' provided above.
-          4. If a user asks "Am I free?", call 'getCalendarEvents' for that time period and analyze the results.
         `;
 
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        chatSessionRef.current = ai.chats.create({
-          model: 'gemini-3-flash-preview',
-          config: {
-            systemInstruction: contextString,
-            tools: tools
-          },
+        const apiUrl = import.meta.env.VITE_API_URL || '';
+        const response = await fetch(`${apiUrl}/api/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'init',
+            sessionId: sessionIdRef.current,
+            context: { financialContext }
+          })
         });
+
+        if (!response.ok) {
+          console.error('Failed to initialize chat session');
+        }
       } catch (error) {
-        console.error("Error initializing chat:", error);
+        console.error('Error initializing chat:', error);
       }
     };
 
     initChat();
-  }, [accounts]); // Re-init if accounts change, though usually just once is enough
+  }, [accounts]);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || !chatSessionRef.current) return;
+    if (!input.trim()) return;
 
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
@@ -136,85 +81,102 @@ export default function Chat({ accounts, transactions, events, onAddEvent }: Cha
     setIsThinking(true);
 
     try {
-      const result = await chatSessionRef.current.sendMessage({ message: input });
-      
-      // Check for function calls
-      const calls = result.functionCalls;
-      
-      if (calls && calls.length > 0) {
-        // Handle Function Calls
-        // We map each call to a Part containing the function response
-        const responseParts: Part[] = [];
-        
-        for (const call of calls) {
-            let apiResponse = {};
-            
-            if (call.name === 'createCalendarEvent') {
-                const args = call.args as any;
-                const newEvent: CalendarEvent = {
-                    id: generateId(),
-                    title: args.title,
-                    start: args.start,
-                    end: args.end,
-                    type: 'local',
-                    description: args.description || '',
-                    location: args.location || '',
-                    color: '#3b82f6' // Blue
-                };
-                
-                // Execute the action in the app
-                onAddEvent(newEvent);
-                apiResponse = { result: "Event created successfully.", event: newEvent };
-            } 
-            else if (call.name === 'getCalendarEvents') {
-                const args = call.args as any;
-                const startRange = new Date(args.start);
-                const endRange = new Date(args.end);
-                
-                // Filter events within range
-                const foundEvents = events.filter(e => {
-                    const eStart = new Date(e.start);
-                    return eStart >= startRange && eStart <= endRange;
-                });
-                
-                apiResponse = { 
-                    result: foundEvents.length > 0 ? "Events found." : "No events found (User is free).",
-                    events: foundEvents.map(e => ({ title: e.title, start: e.start, end: e.end }))
-                };
-            }
+      const apiUrl = import.meta.env.VITE_API_URL || '';
 
-            responseParts.push({
-                functionResponse: {
-                    name: call.name,
-                    response: apiResponse,
-                    id: call.id
-                }
+      // Send message to backend
+      const response = await fetch(`${apiUrl}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: input,
+          sessionId: sessionIdRef.current
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      if (result.type === 'function_call') {
+        // Handle function calls
+        const functionResponses = [];
+
+        for (const call of result.functionCalls) {
+          let apiResponse = {};
+
+          if (call.name === 'createCalendarEvent') {
+            const args = call.args;
+            const newEvent: CalendarEvent = {
+              id: generateId(),
+              title: args.title,
+              start: args.start,
+              end: args.end,
+              type: 'local',
+              description: args.description || '',
+              location: args.location || '',
+              color: '#3b82f6'
+            };
+
+            onAddEvent(newEvent);
+            apiResponse = { result: "Event created successfully.", event: newEvent };
+          }
+          else if (call.name === 'getCalendarEvents') {
+            const args = call.args;
+            const startRange = new Date(args.start);
+            const endRange = new Date(args.end);
+
+            const foundEvents = events.filter(e => {
+              const eStart = new Date(e.start);
+              return eStart >= startRange && eStart <= endRange;
             });
+
+            apiResponse = {
+              result: foundEvents.length > 0 ? "Events found." : "No events found (User is free).",
+              events: foundEvents.map(e => ({ title: e.title, start: e.start, end: e.end }))
+            };
+          }
+
+          functionResponses.push({
+            functionResponse: {
+              name: call.name,
+              response: apiResponse
+            }
+          });
         }
 
-        // Send function execution result back to the model
-        // Fix: Use 'message' property with array of Parts
-        const savedResponse = await chatSessionRef.current.sendMessage({
-             message: responseParts
+        // Send function responses back to backend
+        const followUpResponse = await fetch(`${apiUrl}/api/function-response`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId: sessionIdRef.current,
+            functionResponses: functionResponses
+          })
         });
-        
+
+        if (!followUpResponse.ok) {
+          throw new Error('Failed to send function response');
+        }
+
+        const followUpResult = await followUpResponse.json();
+
         setMessages(prev => [...prev, {
-            id: Date.now().toString(),
-            role: 'model',
-            text: savedResponse.text || "Action completed.",
-            timestamp: Date.now()
+          id: Date.now().toString(),
+          role: 'model',
+          text: followUpResult.text,
+          timestamp: Date.now()
         }]);
 
-      } else {
-        // Standard Text Response
-        if (result.text) {
-             setMessages(prev => [...prev, {
-                id: Date.now().toString(),
-                role: 'model',
-                text: result.text,
-                timestamp: Date.now()
-             }]);
-        }
+      } else if (result.type === 'text') {
+        // Standard text response
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          role: 'model',
+          text: result.text,
+          timestamp: Date.now()
+        }]);
       }
 
     } catch (error) {
@@ -222,7 +184,7 @@ export default function Chat({ accounts, transactions, events, onAddEvent }: Cha
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
         role: 'model',
-        text: "I'm sorry, I encountered an error processing your request.",
+        text: "I'm sorry, I encountered an error processing your request. Make sure the API is configured correctly.",
         timestamp: Date.now(),
         isError: true
       }]);
@@ -239,7 +201,7 @@ export default function Chat({ accounts, transactions, events, onAddEvent }: Cha
         </div>
         <div>
           <h2 className="font-bold text-slate-800 dark:text-white">Personal Assistant</h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400">Powered by Gemini AI</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">Powered by Gemini AI (Vertex AI)</p>
         </div>
       </div>
 
@@ -249,37 +211,35 @@ export default function Chat({ accounts, transactions, events, onAddEvent }: Cha
             key={msg.id}
             className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
           >
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-              msg.role === 'user' 
-                ? 'bg-blue-600 text-white' 
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${msg.role === 'user'
+                ? 'bg-blue-600 text-white'
                 : 'bg-emerald-600 text-white'
-            }`}>
+              }`}>
               {msg.role === 'user' ? <User size={16} /> : <Bot size={16} />}
             </div>
-            
-            <div className={`max-w-[80%] md:max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
-              msg.role === 'user'
+
+            <div className={`max-w-[80%] md:max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${msg.role === 'user'
                 ? 'bg-blue-600 text-white rounded-tr-sm'
-                : msg.isError 
+                : msg.isError
                   ? 'bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-tl-sm'
                   : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-tl-sm shadow-sm'
-            }`}>
+              }`}>
               {msg.text}
             </div>
           </div>
         ))}
         {isThinking && (
           <div className="flex gap-3">
-             <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center flex-shrink-0">
-               <Bot size={16} />
-             </div>
-             <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
-               <div className="flex space-x-1">
-                 <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                 <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                 <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-               </div>
-             </div>
+            <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center flex-shrink-0">
+              <Bot size={16} />
+            </div>
+            <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
+              <div className="flex space-x-1">
+                <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+              </div>
+            </div>
           </div>
         )}
         <div ref={messagesEndRef} />

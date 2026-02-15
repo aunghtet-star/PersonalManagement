@@ -14,7 +14,7 @@ INSERT INTO accounts (id, name, type, balance, color, logo) VALUES
     'https://logo.clearbit.com/kbzbank.com'
 ),
 (
-    'b2d8f9c5-4g3b-5e2f-ac6d-9g7f3b2e4d5c',
+    'b2d8f9c5-4a3b-5e2f-ac6d-9a7f3b2e4d5c',
     'Hand Cash',
     'Cash',
     0.00,
@@ -22,7 +22,7 @@ INSERT INTO accounts (id, name, type, balance, color, logo) VALUES
     NULL
 ),
 (
-    'c3e9gad6-5h4c-6f3g-bd7e-ah8g4c3f5e6d',
+    'c3e9aad6-5b4c-6f3a-bd7e-ab8a4c3f5e6d',
     'KPay',
     'Mobile Money',
     0.00,
