@@ -63,7 +63,6 @@ export function useAccounts() {
             const { data, error } = await supabase
                 .from('accounts')
                 .insert([{
-                    id: newAccount.id,
                     name: newAccount.name,
                     type: newAccount.type,
                     balance: newAccount.balance,
@@ -75,11 +74,23 @@ export function useAccounts() {
 
             if (error) throw error;
 
-            // Optimistically update local state
-            setAccounts(prev => [...prev, newAccount]);
+            // Use the DB-generated UUID
+            const savedAccount: Account = {
+                id: data.id,
+                name: data.name,
+                type: data.type,
+                balance: parseFloat(data.balance),
+                color: data.color,
+                logo: data.logo,
+            };
+
+            // Update local state
+            setAccounts(prev => [...prev, savedAccount]);
         } catch (err: any) {
             console.error('Error adding account:', err);
             setError(err.message);
+            // Still add locally as fallback
+            setAccounts(prev => [...prev, newAccount]);
         }
     };
 

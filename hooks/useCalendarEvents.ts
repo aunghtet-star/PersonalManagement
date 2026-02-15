@@ -62,10 +62,9 @@ export function useCalendarEvents() {
         }
 
         try {
-            const { error } = await supabase
+            const { data, error } = await supabase
                 .from('calendar_events')
                 .insert([{
-                    id: newEvent.id,
                     title: newEvent.title,
                     start_time: newEvent.start,
                     end_time: newEvent.end,
@@ -74,15 +73,32 @@ export function useCalendarEvents() {
                     description: newEvent.description,
                     location: newEvent.location,
                     calendar_id: newEvent.calendarId,
-                }]);
+                }])
+                .select()
+                .single();
 
             if (error) throw error;
 
+            // Use the DB-generated UUID
+            const savedEvent: CalendarEvent = {
+                id: data.id,
+                title: data.title,
+                start: data.start_time,
+                end: data.end_time,
+                type: data.type,
+                color: data.color,
+                description: data.description,
+                location: data.location,
+                calendarId: data.calendar_id,
+            };
+
             // Update local state
-            setEvents(prev => [...prev, newEvent]);
+            setEvents(prev => [...prev, savedEvent]);
         } catch (err: any) {
             console.error('Error adding calendar event:', err);
             setError(err.message);
+            // Still add locally as fallback
+            setEvents(prev => [...prev, newEvent]);
         }
     };
 

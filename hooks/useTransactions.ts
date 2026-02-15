@@ -56,25 +56,39 @@ export function useTransactions() {
         }
 
         try {
-            const { error } = await supabase
+            const { data, error } = await supabase
                 .from('transactions')
                 .insert([{
-                    id: newTransaction.id,
                     account_id: newTransaction.accountId,
                     type: newTransaction.type,
                     amount: newTransaction.amount,
                     category: newTransaction.category,
                     date: newTransaction.date,
                     description: newTransaction.description,
-                }]);
+                }])
+                .select()
+                .single();
 
             if (error) throw error;
 
+            // Use the DB-generated UUID for the transaction
+            const savedTransaction: Transaction = {
+                id: data.id,
+                accountId: data.account_id,
+                type: data.type,
+                amount: parseFloat(data.amount),
+                category: data.category,
+                date: data.date,
+                description: data.description,
+            };
+
             // Optimistically update local state
-            setTransactions(prev => [newTransaction, ...prev]);
+            setTransactions(prev => [savedTransaction, ...prev]);
         } catch (err: any) {
             console.error('Error adding transaction:', err);
             setError(err.message);
+            // Still add locally as fallback
+            setTransactions(prev => [newTransaction, ...prev]);
         }
     };
 

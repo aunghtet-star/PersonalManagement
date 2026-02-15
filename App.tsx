@@ -99,11 +99,46 @@ export default function App() {
         });
         setGapiInited(true);
 
-        // Check if there's an existing token and auto-reconnect
-        const existingToken = window.gapi.client.getToken();
-        if (existingToken) {
-          setIsGoogleConnected(true);
-          await fetchGoogleData();
+        // Restore token from localStorage and auto-reconnect
+        const savedToken = localStorage.getItem('google_access_token');
+        if (savedToken) {
+          try {
+            const tokenData = JSON.parse(savedToken);
+            window.gapi.client.setToken(tokenData);
+            setIsGoogleConnected(true);
+            // Directly fetch Google data (gapi is already initialized at this point)
+            try {
+              const response = await window.gapi.client.calendar.calendarList.list();
+              const googleCals: ExternalCalendar[] = response.result.items.map((item: any) => ({
+                id: item.id,
+                summary: item.summary,
+                backgroundColor: item.backgroundColor,
+                primary: item.primary,
+                selected: item.primary || false,
+                provider: 'google'
+              }));
+
+              setExternalCalendars(prev => {
+                const nonGoogle = prev.filter(c => c.provider !== 'google');
+                return [...nonGoogle, ...googleCals];
+              });
+
+              // Fetch events from selected calendars
+              const selectedCals = googleCals.filter(c => c.selected);
+              if (selectedCals.length > 0) {
+                fetchGoogleEvents(selectedCals);
+              }
+            } catch (fetchErr) {
+              console.warn('Failed to fetch Google data, token may be expired:', fetchErr);
+              // Token expired, clear it
+              localStorage.removeItem('google_access_token');
+              window.gapi.client.setToken(null);
+              setIsGoogleConnected(false);
+            }
+          } catch (e) {
+            console.warn('Saved Google token invalid, clearing:', e);
+            localStorage.removeItem('google_access_token');
+          }
         }
       } catch (error) {
         console.error("Error initializing GAPI client:", error);
@@ -120,11 +155,11 @@ export default function App() {
             return;
           }
 
-          // Set the token in gapi client for persistence
+          // Save token to localStorage for persistence across refreshes
           if (resp.access_token) {
-            window.gapi.client.setToken({
-              access_token: resp.access_token
-            });
+            const tokenData = { access_token: resp.access_token };
+            window.gapi.client.setToken(tokenData);
+            localStorage.setItem('google_access_token', JSON.stringify(tokenData));
           }
 
           setIsGoogleConnected(true);
@@ -198,6 +233,7 @@ export default function App() {
       });
       window.gapi.client.setToken(null);
     }
+    localStorage.removeItem('google_access_token');
     setIsGoogleConnected(false);
     // Remove Google events from state
     setExternalEvents(prev => prev.filter((e: CalendarEvent) => e.type !== 'google'));
